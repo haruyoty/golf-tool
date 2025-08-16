@@ -1,11 +1,269 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
   <html lang="ja">
   <head>
       <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">     
       <title>⛳ ゴルフアドレス診断ツール</title>
+      <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.16754694     
+  04/pose.js"></script>
+      <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+      <style>
+          body {
+              font-family: Arial, sans-serif;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);     
+              margin: 0;
+              padding: 20px;
+          }
+          .container {
+              max-width: 1000px;
+              margin: 0 auto;
+              background: white;
+              border-radius: 15px;
+              padding: 30px;
+          }
+          .header {
+              text-align: center;
+              margin-bottom: 30px;
+          }
+          .upload-area {
+              border: 3px dashed #667eea;
+              border-radius: 10px;
+              padding: 40px;
+              text-align: center;
+              margin-bottom: 20px;
+          }
+          #imageInput {
+              display: none;
+          }
+          .upload-btn {
+              background: #667eea;
+              color: white;
+              padding: 15px 30px;
+              border: none;
+              border-radius: 25px;
+              cursor: pointer;
+              font-size: 16px;
+          }
+          .settings {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));       
+              gap: 20px;
+              margin-bottom: 20px;
+          }
+          .setting-group label {
+              display: block;
+              margin-bottom: 5px;
+              font-weight: bold;
+          }
+          .setting-group select {
+              width: 100%;
+              padding: 8px;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+          }
+          #imageDisplay {
+              text-align: center;
+              margin: 20px 0;
+          }
+          #canvas {
+              max-width: 100%;
+              border-radius: 10px;
+          }
+          .results {
+              margin-top: 30px;
+          }
+          .score-display {
+              text-align: center;
+              font-size: 48px;
+              font-weight: bold;
+              color: #667eea;
+              margin: 20px 0;
+          }
+      </style>
   </head>
   <body>
-      <h1>⛳ ゴルフアドレス診断ツール</h1>
-      <p>準備中です...</p>
+      <div class="container">
+          <div class="header">
+              <h1>⛳ ゴルフアドレス診断ツール</h1>
+              <p>AIを使ったアドレス姿勢の自動診断</p>
+          </div>
+
+          <div class="upload-area">
+              <input type="file" id="imageInput" accept="image/*">
+              <button class="upload-btn"
+  onclick="document.getElementById('imageInput').click()">
+                  📷 写真をアップロード
+              </button>
+              <p style="margin-top:
+  15px;">アドレス時の写真を選択してください</p>
+          </div>
+
+          <div class="settings">
+              <div class="setting-group">
+                  <label>利き手</label>
+                  <select id="handedness">
+                      <option value="right">右打ち</option>
+                      <option value="left">左打ち</option>
+                  </select>
+              </div>
+              <div class="setting-group">
+                  <label>撮影方向</label>
+                  <select id="direction">
+                      <option value="front">正面</option>
+                      <option value="rear">後方</option>
+                  </select>
+              </div>
+              <div class="setting-group">
+                  <label>クラブ</label>
+                  <select id="club">
+                      <option value="Driver">ドライバー</option>
+                      <option value="7I">7番アイアン</option>
+                      <option value="PW">ピッチングウェッジ</option>
+                  </select>
+              </div>
+          </div>
+
+          <div id="imageDisplay" style="display: none;">
+              <canvas id="canvas"></canvas>
+          </div>
+
+          <div id="results" class="results" style="display: none;">
+              <h2>診断結果</h2>
+              <div class="score-display" id="totalScore">--</div>
+              <div id="feedback"></div>
+          </div>
+      </div>
+
+      <script>
+          let pose;
+          let currentImage;
+
+          // MediaPipe初期化
+          function initializeMediaPipe() {
+              pose = new Pose({
+                  locateFile: (file) => {
+                      return
+  `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/${file}`;
+                  }
+              });
+
+              pose.setOptions({
+                  modelComplexity: 1,
+                  smoothLandmarks: true,
+                  minDetectionConfidence: 0.5,
+                  minTrackingConfidence: 0.5
+              });
+
+              pose.onResults(onResults);
+          }
+
+          // 画像アップロード処理
+          document.getElementById('imageInput').addEventListener('change',       
+  function(e) {
+              const file = e.target.files[0];
+              if (file) {
+                  const reader = new FileReader();
+                  reader.onload = function(event) {
+                      const img = new Image();
+                      img.onload = function() {
+                          currentImage = img;
+                          analyzeImage(img);
+                      };
+                      img.src = event.target.result;
+                  };
+                  reader.readAsDataURL(file);
+              }
+          });
+
+          // 姿勢解析
+          function analyzeImage(image) {
+              document.getElementById('imageDisplay').style.display =
+  'block';
+              pose.send({image: image});
+          }
+
+          // 結果処理
+          function onResults(results) {
+              const canvas = document.getElementById('canvas');
+              const ctx = canvas.getContext('2d');
+
+              canvas.width = currentImage.width;
+              canvas.height = currentImage.height;
+
+              // 画像を描画
+              ctx.drawImage(currentImage, 0, 0);
+
+              // ランドマークを描画
+              if (results.poseLandmarks) {
+                  drawLandmarks(ctx, results.poseLandmarks);
+
+                  // 簡易診断
+                  const score =
+  performSimpleDiagnosis(results.poseLandmarks);
+                  displayResults(score);
+              } else {
+                  alert('姿勢を検出できませんでした。明るい場所で全身が写っ      
+  た写真をお試しください。');
+              }
+          }
+
+          // ランドマーク描画
+          function drawLandmarks(ctx, landmarks) {
+              ctx.fillStyle = '#00FF00';
+              landmarks.forEach(landmark => {
+                  if (landmark.visibility > 0.5) {
+                      ctx.beginPath();
+                      ctx.arc(
+                          landmark.x * ctx.canvas.width,
+                          landmark.y * ctx.canvas.height,
+                          3, 0, 2 * Math.PI
+                      );
+                      ctx.fill();
+                  }
+              });
+          }
+
+          // 簡易診断
+          function performSimpleDiagnosis(landmarks) {
+              // 基本的な姿勢チェック
+              const leftShoulder = landmarks[11];
+              const rightShoulder = landmarks[12];
+              const leftHip = landmarks[23];
+              const rightHip = landmarks[24];
+
+              // 肩と腰の水平度チェック
+              const shoulderDiff = Math.abs(leftShoulder.y -
+  rightShoulder.y);
+              const hipDiff = Math.abs(leftHip.y - rightHip.y);
+
+              let score = 100;
+              if (shoulderDiff > 0.05) score -= 20;
+              if (hipDiff > 0.05) score -= 15;
+
+              return Math.max(60, score);
+          }
+
+          // 結果表示
+          function displayResults(score) {
+              document.getElementById('results').style.display = 'block';        
+              document.getElementById('totalScore').textContent = score +        
+  '点';
+
+              let feedback = '';
+              if (score >= 90) {
+                  feedback = '🎉 素晴らしいアドレスです！';
+              } else if (score >= 75) {
+                  feedback = '👍 良好なアドレスです。';
+              } else {
+                  feedback = '⚠️ 改善の余地があります。';
+              }
+
+              document.getElementById('feedback').innerHTML = feedback;
+          }
+
+          // 初期化
+          initializeMediaPipe();
+      </script>
   </body>
   </html>
+
